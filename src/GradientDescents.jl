@@ -1,14 +1,16 @@
 module GradientDescents
 
+    using ForwardDiff
+
     import Base: done, next
 
     abstract type GradientProvider end
     abstract type ParameterUpdater end
     abstract type LearningRateUpdater end
-    abstract type TraceRecorder end
+    abstract type Tracer end
     abstract type Terminator end
 
-    type GradientDescent{T <: GradientProvider, K <: ParameterUpdater, Q <: LearningRateUpdater, P <: Terminator, L <: TraceRecorder}
+    type GradientDescent{T <: GradientProvider, K <: ParameterUpdater, Q <: LearningRateUpdater, P <: Terminator, L <: Tracer}
         gradient::T
         p_updater::K
         η_updater::Q
@@ -39,61 +41,14 @@ module GradientDescents
     end
 
     # sub types
-
-    struct StaticGradient{T<:Function, K <: Function} <: GradientProvider
-        f::K
-        g::T
-    end
-    next(g::StaticGradient) = (g.f, g.g)
-        
-    struct DirectDescent <: ParameterUpdater
-    end
-    init(sd::DirectDescent,pinit) = pinit
-    update(sd::DirectDescent,p,g::Function) = -g(p)
-
-    struct ConstLearningRate <: LearningRateUpdater
-    end
-    init(lr::ConstLearningRate) = 1e-2
-    update(lr::ConstLearningRate,η) = zero(η)
-
-    mutable struct OneTraceRecorder <: TraceRecorder
-        p
-        p_previous
-    end
-    function init!(t::OneTraceRecorder,p,η)
-        t.p = p 
-        t.p_previous = p      
-    end
-    function update!(t::OneTraceRecorder,p,η)
-        t.p_previous = t.p
-        t.p = p 
-    end
-
-    struct SimpleTerminator <: Terminator
-    end
-    init!(t::SimpleTerminator) = nothing
-    done(t::SimpleTerminator,f,trace) = false
-
+    include("GradientProviders.jl")
+    include("ParameterUpdaters.jl")
+    include("LearningRateUpdater.jl")
+    include("Tracers.jl")
+    include("Terminators.jl")
+       
 end # module
 
-using BBOBFunctions, ForwardDiff
 
-G = GradientDescents
 
-f = BBOBFunctions.F1.f
-g = p -> ForwardDiff.gradient(f,p)
 
-gd = G.GradientDescent(
-    G.StaticGradient(f,g),
-    G.DirectDescent(),
-    G.ConstLearningRate(),
-    G.SimpleTerminator(),
-    G.OneTraceRecorder(rand(3),rand(3)),
-    (p,f) -> println(f(p))
-)
-
-type Opt
-    niter
-end
-
-G.optimize(gd, rand(3), Opt(1000)).p ≈ BBOBFunctions.F1.x_opt[1:3]
