@@ -1,7 +1,8 @@
 module GradientDescents
 
-    using ForwardDiff
+    using ForwardDiff, Optim
 
+    import Optim: Optimizer
     import Base: done, next
 
     abstract type GradientProvider end
@@ -10,34 +11,43 @@ module GradientDescents
     abstract type Tracer end
     abstract type Terminator end
 
-    type GradientDescent{T <: GradientProvider, K <: ParameterUpdater, Q <: LearningRateUpdater, P <: Terminator, L <: Tracer}
+    type GradientDescent{T <: GradientProvider, K <: ParameterUpdater, Q <: LearningRateUpdater, P <: Terminator, L <: Tracer} <: Optimizer
         gradient::T
         p_updater::K
         η_updater::Q
         terminator::P
-        trace::L
+        tracer::L
         callback::Function
     end
 
     function optimize(gd::GradientDescent, pinit, opt)
 
-        η = init(gd.η_updater)
-        p = init(gd.p_updater,pinit)
-        init!(gd.trace,p,η)
+        #get gradient first for initialization
+        f,g = next(gd.gradient)
+        g_t = g(pinit)
+        
+        p, η = init(gd.p_updater,pinit), init(gd.η_updater,g_t,pinit)
+        
+        init!(gd.p_updater.momentum,p)
+        init!(gd.tracer,p,η)
         init!(gd.terminator)
 
         for i=1:opt.niter
 
-            f,g = next(gd.gradient)
-            η += update(gd.η_updater,η)
-            p += η*update(gd.p_updater,p,g)
+            η += update(gd.η_updater,η,g_t)
+            p += update(gd.p_updater,η,p,g_t)
 
-            update!(gd.trace,p,η)
+            update!(gd.p_updater.momentum,g_t)
+            update!(gd.tracer,p,η)
 
-            done(gd.terminator,f,gd.trace) && return
+            done(gd.terminator,f,g_t,gd.tracer) && return gd.tracer
             gd.callback(p,f)
+            
+            #get next gradient
+            f,g = next(gd.gradient)
+            g_t = g(p)
         end
-        gd.trace
+        gd.tracer
     end
 
     # sub types
